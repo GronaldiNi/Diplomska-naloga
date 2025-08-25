@@ -5,23 +5,40 @@ import fs from "fs";
 import { resolve, join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { ensureBrowserMp4 } from "./videoUtils.js";
+import pLimit from "p-limit";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = dirname(__filename);
 
 const app = express();
+app.set("etag", false);
 app.use(express.static(join(__dirname, "public")));
-
 const binaryCache = new Map();
+//FTP odjemalec
+const ftpOp = pLimit(1);
 
-//En skupen FTP odjemalec (varčujemo z vzpostavitvijo povezav)
-let ftpClient = null;
-async function getFtp() {
-  if (ftpClient) return ftpClient;
-  ftpClient = new qc.Client();
-  await ftpClient.connect({ protocol: "ftp", host: "public.sos.noaa.gov" });
-  return ftpClient;
+async function runFtp(op) {
+  return ftpOp(async () => {
+    const client = new qc.Client();
+    await client.connect({ protocol: "ftp", host: "public.sos.noaa.gov" });
+    try {
+      return await op(client);
+    } finally {
+      try { await (client.close?.() || client.end?.() || client.disconnect?.()); } catch {}
+    }
+  });
 }
+
+async function ftpDownloadWithTimeout(client, remotePath, localPath, timeoutMs = 15000) {
+  return Promise.race([
+    client.download(localPath, remotePath),
+    new Promise((_, rej) =>
+      setTimeout(() => rej(new Error(`FTP timeout: ${remotePath}`)), timeoutMs)
+    )
+  ]);
+}
+
+
 
 //Pomoč: poti do ./tmp in ustvarjanje začasnih datotek
 function ensureTmpDir() {
@@ -38,7 +55,7 @@ function makeTempPath(ext = "") {
 async function getFile(client, filePath) {
   const local = makeTempPath();
   try {
-    await client.download(local, filePath);
+    await ftpDownloadWithTimeout(client, filePath, local);
     return fs.readFileSync(local, "utf8");
   } finally {
     if (fs.existsSync(local)) fs.unlinkSync(local);
@@ -51,14 +68,14 @@ async function getBinaryFileCached(client, filePath, wantPath = false) {
   if (cachedPath && fs.existsSync(cachedPath)) {
     return wantPath ? cachedPath : fs.readFileSync(cachedPath);
   }
-
+  
   const dot = filePath.lastIndexOf(".");
   const ext = dot >= 0 ? filePath.slice(dot) : "";
   const tempPath = makeTempPath(ext);
-
-  await client.download(tempPath, filePath);
+  
+  await ftpDownloadWithTimeout(client, filePath, tempPath);
   binaryCache.set(filePath, tempPath);
-
+  
   return wantPath ? tempPath : fs.readFileSync(tempPath);
 }
 
@@ -66,14 +83,19 @@ async function getBinaryFileCached(client, filePath, wantPath = false) {
 app.get("/getPlaylist", async (req, res) => {
   const path = req.query.path;
   if (!path || !path.endsWith("playlist.sos")) {
-    return res.status(400).end();
+    return res.status(400).json({ message: "Missing or invalid 'path'" });
   }
   try {
-    const client  = await getFtp();
-    const content = await getFile(client, path);
+    const content = await runFtp(c => getFile(c, path));
+    res.set({
+      "Access-Control-Allow-Origin": "*",
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json; charset=utf-8"
+    });
     res.json({ path, content });
-  } catch {
-    res.status(500).end();
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ message: "Error fetching playlist", error: e.message });
   }
 });
 
@@ -83,19 +105,19 @@ app.get("/getLayer", async (req, res) => {
   if (!ftpPath || !/\.(jpg|png|mp4|mp3|txt)$/i.test(ftpPath)) {
     return res.status(400).end();
   }
-
+  
   let mime = "application/octet-stream";
   if      (/\.png$/i.test(ftpPath))  mime = "image/png";
   else if (/\.jpe?g$/i.test(ftpPath)) mime = "image/jpeg";
   else if (/\.mp4$/i.test(ftpPath))   mime = "video/mp4";
   else if (/\.mp3$/i.test(ftpPath))   mime = "audio/mpeg";
   else if (/\.txt$/i.test(ftpPath))   mime = "text/plain";
-
+  
   const isVideo = /\.mp4$/i.test(ftpPath);
   const labelBase = `GET ${ftpPath}`;
   const isFirstSegment = !req.headers.range || /^bytes=0-/.test(req.headers.range);
   if (isFirstSegment) console.time(labelBase);
-
+  
   try {
     // 1) Če obstaja lokalno transkodirana kopija videa, jo uporabimo 
     let safePath;
@@ -104,41 +126,41 @@ app.get("/getLayer", async (req, res) => {
       const cached = resolve(__dirname, "cache", `${base}_h264.mp4`);
       if (fs.existsSync(cached)) safePath = cached;
     }
-
+    
     // 2) Sicer prenesemo in (če je video) po potrebi transkodiramo 
     if (!safePath) {
-      const client  = await getFtp();
-      const tmpPath = await getBinaryFileCached(client, ftpPath, true);
+      const tmpPath = await runFtp(c => getBinaryFileCached(c, ftpPath, true));
       safePath = isVideo ? await ensureBrowserMp4(tmpPath, ftpPath) : tmpPath;
     }
-
+    
     // 3) Podpora za byte-range pretakanje (delni prenosi) 
     const { size } = fs.statSync(safePath);
     const range    = req.headers.range;
-
+    
     res.set({
       "Content-Type": mime,
       "Accept-Ranges": "bytes",
       "Access-Control-Allow-Origin": "*"
     });
-
+    
     if (!range) {
       res.set("Content-Length", size);
       return fs.createReadStream(safePath).pipe(res);
     }
-
+    
     const [s, e] = range.replace(/bytes=/, "").split("-");
     const start  = Number(s) || 0;
     const end    = e ? Number(e) : size - 1;
-
+    
     res.status(206).set({
       "Content-Length": end - start + 1,
       "Content-Range":  `bytes ${start}-${end}/${size}`
     });
-
+    
     fs.createReadStream(safePath, { start, end }).pipe(res);
-
-  } catch {
+    
+  } catch (e) {
+    console.error("getLayer error:", e);
     res.status(500).end();
   } finally {
     if (isFirstSegment) console.timeEnd(labelBase);
@@ -146,7 +168,9 @@ app.get("/getLayer", async (req, res) => {
 });
 
 //Zagon strežnika
-app.listen(5005, () => console.log("Server posluša na :5005"));
+const PORT = process.env.PORT || 5005;
+app.listen(PORT, () => console.log("Server on :" + PORT));
+
 
 //Čiščenje začasnih datotek ob izklopu procesa
 function cleanupTmpFolder() {
