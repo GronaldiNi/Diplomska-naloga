@@ -1,7 +1,6 @@
 # Diplomska-naloga
-Clone the repository
-navigate to the api directory, install dependencies with:
-npm install
-start the server with
-npm start
-and open http://localhost:5005/ in your browser.
+1. Clone the repository.
+2. Navigate to the `api` directory.
+3. Install dependencies: `npm install`
+4. Start the server: `npm start`
+5. Open http://localhost:5005/ in your browser.
