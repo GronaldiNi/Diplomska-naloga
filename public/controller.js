@@ -140,9 +140,10 @@ window.createDatasetScene = function (engine, canvas, layerUrl, { fps } = {}) {
           // overlay sphere, initially first frame
           const mat = new BABYLON.StandardMaterial("rtMat", scene);
           mat.backFaceCulling = true;
-          mat.emissiveColor   = new BABYLON.Color3(1,1,1);
-          mat.specularColor   = new BABYLON.Color3(0,0,0);
-          mat.alpha           = 1;
+          mat.emissiveColor = new BABYLON.Color3(1,1,1);
+          mat.specularColor = new BABYLON.Color3(0,0,0);
+          mat.alpha = 1;
+          mat.useAlphaFromDiffuseTexture = true;
           const sphere = BABYLON.MeshBuilder.CreateSphere(
             "rtSphere",{diameter:2.002,segments:64},scene);
             sphere.material = mat;  sphere.renderingGroupId = 1;
@@ -158,19 +159,60 @@ window.createDatasetScene = function (engine, canvas, layerUrl, { fps } = {}) {
               });
               refs.dateBox.style.display = "block";
               
-              const cache = new Map();
-              const setFrame = idx => {
-                const path = frames[idx];
-                if (!cache.has(idx)) {
-                  const tex = new BABYLON.Texture(path, scene, true, false);
-                  tex.uScale = -1;  tex.hasAlpha = true;
-                  cache.set(idx, tex);
-                }
-                mat.diffuseTexture = mat.opacityTexture = cache.get(idx);
-                refs.timeline.value     = idx;
-                window.currentRTIdx     = idx;
-                refs.dateBox.textContent = lbls[idx] || "";
+              // non-blinking frames
+              let loading    = false;
+              let pendingIdx = null;
+              let currentTex = null;
+              
+              const t0 = new BABYLON.Texture(
+                frames[0],
+                scene,
+                true,
+                false
+              );
+              t0.uScale   = -1;
+              t0.hasAlpha = true;
+              t0.onLoadObservable.addOnce(() => {
+                mat.opacityTexture = null;
+                mat.diffuseTexture = t0;
+                currentTex = t0;
+                
+                refs.timeline.value      = 0;
+                window.currentRTIdx      = 0;
+                refs.dateBox.textContent = lbls[0] || "";
+              });
+              
+              const setFrame = (idx) => {
+                const url = frames[idx];
+                
+                if (loading) { pendingIdx = idx; return; }
+                loading = true;
+                
+                const tex = new BABYLON.Texture(url, scene, true, false);
+                tex.uScale   = -1;
+                tex.hasAlpha = true;
+                
+                tex.onLoadObservable.addOnce(() => {
+                  const prev = currentTex;
+                  mat.diffuseTexture = tex;
+                  currentTex = tex;
+                  
+                  refs.timeline.value      = idx;
+                  window.currentRTIdx      = idx;
+                  refs.dateBox.textContent = lbls[idx] || "";
+                  if (prev && prev !== tex) prev.dispose();
+                  
+                  loading = false;
+                  if (pendingIdx !== null && pendingIdx !== idx) {
+                    const next = pendingIdx; pendingIdx = null;
+                    setFrame(next);
+                  } else {
+                    pendingIdx = null;
+                  }
+                });
               };
+              
+              
               
               // UI wire-up
               refs.timeline.min   = 0;
@@ -233,7 +275,6 @@ window.createDatasetScene = function (engine, canvas, layerUrl, { fps } = {}) {
               window.applyOverlays = () => applyOverlays(scene);
               await applyOverlays(scene);
               
-              setFrame(0);
               return;
             }
             
