@@ -1,51 +1,65 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Simulator za vizualizacijo podatkov projekta Znanost na sferi</title>
-
-<script src="https://cdn.babylonjs.com/babylon.js"></script>
-<script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
-<script src="https://cdn.babylonjs.com/gui/babylon.gui.min.js"></script>
-
-<style>
-    html, body {
-    margin: 0; 
-    padding: 0; 
-    overflow: hidden; 
-    width: 100%; 
-    height: 100%;
-    }
-    #renderCanvas {
-    width: 100%; 
-    height: 100%; 
-    display: block;
-    }
-    #controls {
-    position: absolute; 
-    top: 20px; 
-    left: 20px; 
-    z-index: 100;
-    }
-    button {
-    padding: 10px; 
-    font-size: 16px; 
-    cursor: pointer;
-    margin-bottom: 10px; 
-    display: block;
-    }
-</style>
-<link rel="stylesheet" href="ui.css">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Simulator za vizualizacijo podatkov projekta Znanost na sferi</title>
+    
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+    <script src="https://cdn.babylonjs.com/gui/babylon.gui.min.js"></script>
+    
+    <style>
+        html, body {
+            margin: 0; 
+            padding: 0; 
+            overflow: hidden; 
+            width: 100%; 
+            height: 100%;
+        }
+        #renderCanvas {
+            width: 100%; 
+            height: 100%; 
+            display: block;
+        }
+        #controls {
+            position: absolute; 
+            top: 20px; 
+            left: 20px; 
+            z-index: 100;
+        }
+        button {
+            padding: 10px; 
+            font-size: 16px; 
+            cursor: pointer;
+            margin-bottom: 10px; 
+            display: block;
+        }
+    </style>
+    <link rel="stylesheet" href="ui.css">
 </head>
 <body>
-<div id="controls"></div>
-
-
-<canvas id="renderCanvas"></canvas>
-
-<script src="tiledGlobe.js"></script>
-<script type="module" src="controller.js"></script>
-<!-- <script type="module" src="chatbotPanel.js"></script> -->
+    <div id="controls"></div>
+    <canvas id="renderCanvas"></canvas>
+    <div id="chatPanel" class="chat-panel">
+        <button id="chatClose" class="chat-close" title="Close">×</button>
+        <div class="chat-body">
+            <div id="chatStatus">Priprava…</div>
+            <div id="chatMessages"></div>
+            <form id="chatForm" autocomplete="off">
+                <input id="chatInput" placeholder="Vprašaj me…" />
+                <button id="chatSend" type="submit">Pošlji</button>
+                <button id="chatStop" type="button" disabled>Stop</button>
+            </form>
+        </div>
+        <div class="reopen-row" id="chatReopen" hidden>
+            <button id="chatOpen" class="chat-open">Open chat</button>
+        </div>
+    </div>
+    
+    
+    <script type="module" src="./chatbot.js"></script>
+    <script src="tiledGlobe.js"></script>
+    <script type="module" src="controller.js"></script>
 </body>
 </html>

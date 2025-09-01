@@ -74,8 +74,10 @@ export function buildDatasetPanel(datasets, onSelect){
     Object.entries(datasets).forEach(([key, ds]) =>{
         const btn = $("button", "");
         btn.textContent = ds.label;
-        btn.onclick = () => onSelect(key);
-        
+        btn.onclick = () => {
+            onSelect(key);
+            window.chatbotSummarizeDataset?.(key, ds);
+        };
         const td = $("td", "");  td.append(btn);
         const tr = $("tr", "");  tr.append(td);
         tbl.append(tr);

@@ -112,6 +112,36 @@ window.createTiledGlobeScene = function (engine, canvas) {
     
     createLights(scene);
     const camera = createCommonCamera(scene, canvas);
+    (function exposeFlyTo(camera) {
+        const normalizeRadians = (a) => ((a + Math.PI) % (2*Math.PI) + 2*Math.PI) % (2*Math.PI) - Math.PI;
+        
+        const latLonToAlphaBeta = (latDeg, lonDeg) => {
+            const lat = BABYLON.Tools.ToRadians(latDeg); // φ
+            const lon = BABYLON.Tools.ToRadians(lonDeg); // λ
+            return {
+                alpha: lon + Math.PI,
+                beta:  Math.acos(Math.sin(lat))
+            };
+        };
+        
+        
+        function animate(cam, a, b, r, ms=1200) {
+            const fps=60, frames=Math.max(1, Math.round(ms/1000*fps));
+            const ease=new BABYLON.CubicEase(); ease.setEasingMode(BABYLON.EasingFunction.EASINGMODE_EASEINOUT);
+            const mk=(p,from,to)=>{const a=new BABYLON.Animation(`a_${p}_${Date.now()}`,p,fps,BABYLON.Animation.ANIMATIONTYPE_FLOAT,BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT);
+            a.setKeys([{frame:0,value:from},{frame:frames,value:to}]); a.setEasingFunction(ease); return a;};
+            const alphaGoal = camera.alpha + normalizeRadians(a - camera.alpha);
+            const betaGoal  = BABYLON.Scalar.Clamp(b, 1e-3, Math.PI-1e-3);
+            const rGoal     = BABYLON.Scalar.Clamp(r, camera.lowerRadiusLimit ?? 1.05, camera.upperRadiusLimit ?? 3.5);
+            camera.animations = [mk("alpha",camera.alpha,alphaGoal), mk("beta",camera.beta,betaGoal), mk("radius",camera.radius,rGoal)];
+            camera.getScene().beginAnimation(camera,0,frames,false);
+        }
+        window.flyToLatLon = (lat, lon, radius=2.0, ms=1200) => {
+            const { alpha, beta } = latLonToAlphaBeta(lat, lon);
+            animate(camera, alpha, beta, radius, ms);
+        };
+    })(camera);
+    
     
     const tilesPerAxis = 2 ** ZOOM;
     
